@@ -1,3 +1,5 @@
+#include <pwd.h>
+
 #include "modules/menu.hpp"
 
 #include "drawtypes/label.hpp"
@@ -10,6 +12,44 @@ POLYBAR_NS
 
 namespace modules {
   template class module<menu_module>;
+
+  static std::string exec(const char* cmd) {
+    std::array<char, 128> buffer;
+    std::string result;
+    std::unique_ptr<FILE, decltype(&pclose)> pipe(popen(cmd, "r"), pclose);
+    if (!pipe)
+    { throw std::runtime_error("popen() failed!"); }
+    while (fgets(buffer.data(), buffer.size(), pipe.get()) != nullptr)
+    { result += buffer.data(); }
+    return result;
+  }
+
+  static std::string replace_all(std::string data, std::string toSearch, std::string replaceStr)
+  {
+	  // Get the first occurrence
+  	size_t pos = data.find(toSearch);
+
+	  // Repeat till end is reached
+	  while(pos != std::string::npos)
+	  {
+		  // Replace this occurrence of Sub String
+		  data.replace(pos, toSearch.size(), replaceStr);
+		  // Get the next occurrence from the current position
+		  pos = data.find(toSearch, pos + replaceStr.size());
+	  }
+    return data;
+  }
+
+  static std::string replace_all(std::string data, std::vector <std::string> toSearch, std::string replaceStr)
+  {
+	  // Repeat till end is reached
+	  for (size_t pos = 0; pos < toSearch.size(); pos++)
+    {
+		  // Replace this occurrence of Sub String
+		  data = replace_all(data, toSearch[pos], replaceStr);
+	  }
+    return data;
+  }
 
   menu_module::menu_module(const bar_settings& bar, string name_) : static_module<menu_module>(bar, move(name_)) {
     m_expand_right = m_conf.get(name(), "expand-right", m_expand_right);
@@ -59,6 +99,17 @@ namespace modules {
         item->label = load_label(m_conf, name(), item_param);
         item->exec = m_conf.get(name(), item_param + "-exec", string{EVENT_MENU_CLOSE});
         m_levels.back()->items.emplace_back(move(item));
+      }
+    }
+
+    if (m_labelopen)
+    {
+      m_labelopen->reset_tokens();
+      if(m_labelopen->has_token("%username%"))
+      {
+        m_labelopen->replace_token("%username%", 
+            replace_all(exec("echo $(getent passwd $(whoami) | cut -d ':' -f 5 | cut -d ',' -f 1)"), 
+            std::vector<std::string> { "\r", "\n" }, ""));
       }
     }
   }

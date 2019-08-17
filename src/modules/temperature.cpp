@@ -1,10 +1,11 @@
+#include <cmath>
+
 #include "modules/temperature.hpp"
 
 #include "drawtypes/label.hpp"
 #include "drawtypes/ramp.hpp"
 #include "utils/file.hpp"
 #include "utils/math.hpp"
-#include <cmath>
 
 #include "modules/meta/base.inl"
 

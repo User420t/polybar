@@ -21,7 +21,11 @@ namespace modules {
     explicit cpu_module(const bar_settings&, string);
 
     bool update();
+    string get_format() const;
     bool build(builder* builder, const string& tag) const;
+
+    //temperature
+    //string get_format() const;
 
    protected:
     bool read_values();
@@ -44,6 +48,16 @@ namespace modules {
 
     float m_total = 0;
     vector<float> m_load;
+
+    //temperature
+    static constexpr auto TAG_TEMPERATURE = "<temperature>";
+
+    label_t m_temperature;
+    ramp_t m_ramp;
+
+    string m_path;
+    int m_zone = 0;
+    int m_temp = 0;
   };
 }
 

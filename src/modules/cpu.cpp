@@ -1,11 +1,13 @@
 #include <fstream>
 #include <istream>
+#include <cmath>
 
 #include "modules/cpu.hpp"
 
 #include "drawtypes/label.hpp"
 #include "drawtypes/progressbar.hpp"
 #include "drawtypes/ramp.hpp"
+#include "utils/file.hpp"
 #include "utils/math.hpp"
 
 #include "modules/meta/base.inl"
@@ -20,7 +22,7 @@ namespace modules {
 
     m_ramp_padding = m_conf.get<decltype(m_ramp_padding)>(name(), "ramp-coreload-spacing", 1);
 
-    m_formatter->add(DEFAULT_FORMAT, TAG_LABEL, {TAG_LABEL, TAG_BAR_LOAD, TAG_RAMP_LOAD, TAG_RAMP_LOAD_PER_CORE});
+    m_formatter->add(DEFAULT_FORMAT, TAG_LABEL, {TAG_LABEL, TAG_TEMPERATURE, TAG_BAR_LOAD, TAG_RAMP_LOAD, TAG_RAMP_LOAD_PER_CORE});
 
     // warmup cpu times
     read_values();
@@ -38,6 +40,18 @@ namespace modules {
     if (m_formatter->has(TAG_LABEL)) {
       m_label = load_optional_label(m_conf, name(), TAG_LABEL, "%percentage%%");
     }
+
+    //temperature
+    m_zone = m_conf.get(name(), "thermal-zone", 0);
+    m_path = m_conf.get(name(), "hwmon-path", ""s);
+
+    if (m_path.empty())
+    { m_path = string_util::replace(PATH_TEMPERATURE_INFO, "%zone%", to_string(m_zone)); }
+    if (!file_util::exists(m_path))
+    { throw module_error("The file '" + m_path + "' does not exist"); }
+
+    if (m_formatter->has(TAG_TEMPERATURE))
+    { m_temperature = load_optional_label(m_conf, name(), TAG_TEMPERATURE, "%temperature-c%"); }
   }
 
   bool cpu_module::update() {
@@ -77,8 +91,20 @@ namespace modules {
       }
     }
 
+    //temperature
+    if (m_temperature)
+    {
+      m_temp = std::strtol(file_util::contents(m_path).c_str(), nullptr, 10) / 1000.0f + 0.5f;
+      m_temperature->reset_tokens();
+      m_temperature->replace_token("%temperature-f%", to_string(floor(((1.8 * m_temp) + 32) + 0.5)));
+      m_temperature->replace_token("%temperature-c%", to_string(m_temp));
+    }
+
     return true;
   }
+
+  string cpu_module::get_format() const
+  { return DEFAULT_FORMAT; }
 
   bool cpu_module::build(builder* builder, const string& tag) const {
     if (tag == TAG_LABEL) {
@@ -96,7 +122,10 @@ namespace modules {
         builder->node(m_rampload_core->get_by_percentage(load));
       }
       builder->node(builder->flush());
-    } else {
+    }
+    else if (tag == TAG_TEMPERATURE)
+    { builder->node(m_temperature); }
+    else {
       return false;
     }
     return true;
@@ -123,8 +152,7 @@ namespace modules {
         m_cputimes.back()->nice = std::stoull(values[2], nullptr, 10);
         m_cputimes.back()->system = std::stoull(values[3], nullptr, 10);
         m_cputimes.back()->idle = std::stoull(values[4], nullptr, 10);
-        m_cputimes.back()->total =
-            m_cputimes.back()->user + m_cputimes.back()->nice + m_cputimes.back()->system + m_cputimes.back()->idle;
+        m_cputimes.back()->total = m_cputimes.back()->user + m_cputimes.back()->nice + m_cputimes.back()->system + m_cputimes.back()->idle;
       }
     } catch (const std::ios_base::failure& e) {
       m_log.err("Failed to read CPU values (what: %s)", e.what());

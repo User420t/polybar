@@ -1,4 +1,5 @@
 #include <utility>
+#include <cmath>
 
 #include "drawtypes/label.hpp"
 #include "drawtypes/progressbar.hpp"
@@ -31,6 +32,12 @@ namespace drawtypes {
     m_gradient = mode;
   }
 
+  void progressbar::set_invdir(bool mode)
+  { m_invdir = mode; }
+
+  void progressbar::set_inden(bool mode)
+  { m_inden = mode; }
+
   void progressbar::set_colors(vector<string>&& colors) {
     m_colors = forward<decltype(colors)>(colors);
 
@@ -43,7 +50,7 @@ namespace drawtypes {
     // Get fill/empty widths based on percentage
     unsigned int perc = math_util::cap(percentage, 0.0f, 100.0f);
     unsigned int fill_width = math_util::percentage_to_value(perc, m_width);
-    unsigned int empty_width = m_width - fill_width;
+    unsigned int empty_width = m_width - fill_width - (m_inden ? 0 : 1);
 
     // Output fill icons
     fill(perc, fill_width);
@@ -60,20 +67,25 @@ namespace drawtypes {
     return output;
   }
 
-  void progressbar::fill(unsigned int perc, unsigned int fill_width) {
-    if (m_colors.empty()) {
-      m_builder->node_repeat(m_fill, fill_width);
-    } else if (m_gradient) {
-      size_t color = 0;
-      for (size_t i = 0; i < fill_width; i++) {
-        if (i % m_colorstep == 0 && color < m_colors.size()) {
-          m_fill->m_foreground = m_colors[color++];
-        }
+  void progressbar::fill(unsigned int perc, unsigned int fill_width)
+  {
+    if (m_colors.empty())
+    { m_builder->node_repeat(m_fill, fill_width); }
+    else if (m_gradient)
+    {
+      for(size_t i = (m_invdir ? (m_inden ? 1 : 0) : 0);
+          i < (fill_width + (!m_inden ? 1 : (m_invdir ? 1 : 0)));
+          i++)
+      {
+        size_t color = floor((i + (m_invdir ? (m_width - fill_width - (m_inden ? 0 : 1)) : 0)) / ((m_width + 1) / m_colors.size()));
+        m_fill->m_foreground = m_colors[(m_invdir ? (m_colors.size() - 1 - color) : color)];
+
         m_builder->node(m_fill);
       }
-    } else {
-      size_t color = math_util::percentage_to_value<size_t>(perc, m_colors.size() - 1);
-      m_fill->m_foreground = m_colors[color];
+    }
+    else
+    {
+      m_fill->m_foreground = m_colors[math_util::percentage_to_value<size_t>(perc, m_colors.size() - 1)];
       m_builder->node_repeat(m_fill, fill_width);
     }
   }
@@ -86,7 +98,11 @@ namespace drawtypes {
     // Remove the start and end tag from the name in case a format tag is passed
     name = string_util::ltrim(string_util::rtrim(move(name), '>'), '<');
 
+    bool invdir = conf.get(section, name + "-invdir", false);
+
     string format = "%fill%%indicator%%empty%";
+    if(invdir) { format = "%empty%%indicator%%fill%"; }
+    
     unsigned int width;
 
     if ((format = conf.get(section, name + "-format", format)).empty()) {
@@ -97,6 +113,7 @@ namespace drawtypes {
     }
 
     auto pbar = factory_util::shared<progressbar>(bar, width, format);
+    pbar->set_invdir(invdir);
     pbar->set_gradient(conf.get(section, name + "-gradient", true));
     pbar->set_colors(conf.get_list(section, name + "-foreground", {}));
 
@@ -110,9 +127,18 @@ namespace drawtypes {
     if (format.find("%fill%") != string::npos) {
       icon_fill = load_label(conf, section, name + "-fill");
     }
-    if (format.find("%indicator%") != string::npos) {
-      icon_indicator = load_label(conf, section, name + "-indicator");
+    
+    bool inden = conf.get(section, name + "-inden", true);
+    if(inden && format.find("%indicator%") != string::npos)
+    {
+      icon_indicator = load_label(conf, section, name + "-indicator", false);
+      if (inden && *icon_indicator == 0)
+      {
+        icon_indicator.reset(); inden = false;
+      }
     }
+    pbar->set_inden(inden);
+
 
     // If a foreground/background color is defined for the indicator
     // but not for the empty icon we use the bar's default colors to
